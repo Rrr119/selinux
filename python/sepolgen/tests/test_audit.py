@@ -68,6 +68,18 @@ xperms_invalid = """type=AVC msg=audit(1516626657.910:4461): avc:  denied  { ioc
 xperms_without = """type=AVC msg=audit(1516626657.910:4461): avc:  denied  { ioctl } for  pid=4310 comm="test" path="/root/test" ino=8619937 scontext=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 tcontext=unconfined_u:object_r:test_file_t:s0 tclass=file permissive=0
 """
 
+denial_groups = """type=AVC_PATH msg=audit(1700000000.001:1):  path="/etc/myapp/app.conf"
+type=SYSCALL msg=audit(1700000000.001:1): arch=c000003e syscall=257 success=no exit=-13 a0=ffffff9c a1=7ffd1a2b3c40 a2=0 a3=0 items=0 ppid=1 pid=4242 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) comm="httpd" exe="/usr/sbin/httpd" subj=system_u:system_r:httpd_t:s0 key=(null)
+type=AVC msg=audit(1700000000.001:1): avc: denied { read } for pid=4242 comm="httpd" name="app.conf" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:usr_t:s0 tclass=file
+type=AVC msg=audit(1700000000.001:1): avc: denied { open } for pid=4242 comm="httpd" name="app.conf" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:usr_t:s0 tclass=file
+type=AVC_PATH msg=audit(1700000000.002:2):  path="/var/www/html/index.html"
+type=SYSCALL msg=audit(1700000000.002:2): arch=c000003e syscall=59 success=no exit=-13 a0=7ffd1a2b3c40 a1=7ffd1a2b3d40 a2=7ffd1a2b3e40 a3=0 items=0 ppid=1 pid=4243 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) comm="httpd" exe="/usr/sbin/httpd" subj=system_u:system_r:httpd_t:s0 key=(null)
+type=AVC msg=audit(1700000000.002:2): avc: denied { execute_no_trans } for pid=4243 comm="httpd" name="index.html" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:var_t:s0 tclass=file
+"""
+
+hex_path = """type=AVC_PATH msg=audit(1700000000.003:3):  path=2F746D702F612062
+"""
+
 class TestAVCMessage(unittest.TestCase):
     def test_defs(self):
         avc = sepolgen.audit.AVCMessage(audit1)
@@ -176,6 +188,11 @@ class TestPathMessage(unittest.TestCase):
         path.from_split_string(recs)
         self.assertEqual(path.path, "/usr/lib/sa/sa1")
 
+    def test_hex_path(self):
+        path = sepolgen.audit.PathMessage(hex_path)
+        path.from_split_string(hex_path.split())
+        self.assertEqual(path.path, "/tmp/a b")
+
 # TODO - add tests for the other message types
 
 
@@ -229,6 +246,18 @@ class TestGeneration(unittest.TestCase):
         avs = parser.to_access()
 
         self.assertEqual(len(avs), 1)
+
+    def test_aggregate_by_process_and_path(self):
+        parser = sepolgen.audit.AuditParser()
+        parser.parse_string(denial_groups)
+        groups = parser.to_avc_groups()
+
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0].process, "/usr/sbin/httpd (httpd)")
+        self.assertEqual(groups[0].path, "/etc/myapp/app.conf")
+        self.assertEqual(groups[0].perms, ["open", "read"])
+        self.assertEqual(groups[0].count, 2)
+        self.assertEqual(groups[1].path, "/var/www/html/index.html")
 
     def test_generation_granted(self):
         parser = sepolgen.audit.AuditParser()

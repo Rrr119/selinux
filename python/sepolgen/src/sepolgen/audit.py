@@ -23,6 +23,35 @@ import sys
 from . import refpolicy
 from . import access
 from . import util
+
+
+def decode_path(value):
+    """Decode an audit path field.
+
+    Paths are normally quoted, but audit may emit them as hexadecimal when
+    they contain non-printable characters.  Keep unquoted non-hex strings
+    untouched so ordinary file names are not misdecoded.
+    """
+    quoted = len(value) >= 2 and value[0] == '"' and value[-1] == '"'
+    if quoted:
+        return value[1:-1]
+
+    if (value and len(value) % 2 == 0 and
+            re.fullmatch(r"[0-9A-Fa-f]+", value)):
+        try:
+            return bytes.fromhex(value).decode("utf-8", "surrogateescape")
+        except (ValueError, UnicodeError):
+            pass
+    return value
+
+
+def decode_quoted(value):
+    """Strip audit quoting from a regular field value."""
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        return value[1:-1]
+    return value
+
+
 # Convenience functions
 
 def get_audit_boot_msgs():
@@ -132,8 +161,36 @@ class PathMessage(AuditMessage):
             if len(fields) != 2:
                 continue
             if fields[0] == "path":
-                self.path = fields[1][1:-1]
+                self.path = decode_path(fields[1])
                 return
+
+
+class SyscallMessage(AuditMessage):
+    """The subset of a SYSCALL record needed to identify a process."""
+    def __init__(self, message):
+        AuditMessage.__init__(self, message)
+        self.pid = None
+        self.comm = ""
+        self.exe = ""
+
+    def from_split_string(self, recs):
+        AuditMessage.from_split_string(self, recs)
+
+        for msg in recs:
+            fields = msg.split("=")
+            if len(fields) != 2:
+                continue
+            if fields[0] == "pid":
+                try:
+                    self.pid = int(fields[1])
+                except ValueError:
+                    pass
+            elif fields[0] == "comm":
+                self.comm = decode_quoted(fields[1])
+            elif fields[0] == "exe":
+                self.exe = decode_quoted(fields[1])
+
+
 import selinux.audit2why as audit2why
 
 avcdict = {}
@@ -177,6 +234,7 @@ class AVCMessage(AuditMessage):
         self.exe = ""
         self.path = ""
         self.name = ""
+        self.pid = None
         self.accesses = []
         self.denial = True
         self.ioctlcmd = None
@@ -234,11 +292,18 @@ class AVCMessage(AuditMessage):
                 self.tclass = fields[1]
                 found_class = True
             elif fields[0] == "comm":
-                self.comm = fields[1][1:-1]
+                self.comm = decode_quoted(fields[1])
             elif fields[0] == "exe":
-                self.exe = fields[1][1:-1]
+                self.exe = decode_quoted(fields[1])
             elif fields[0] == "name":
-                self.name = fields[1][1:-1]
+                self.name = decode_quoted(fields[1])
+            elif fields[0] == "path":
+                self.path = decode_path(fields[1])
+            elif fields[0] == "pid":
+                try:
+                    self.pid = int(fields[1])
+                except ValueError:
+                    pass
             elif fields[0] == "ioctlcmd":
                 try:
                     self.ioctlcmd = int(fields[1], 16)
@@ -366,6 +431,7 @@ class AuditParser:
         self.invalid_msgs = []
         self.policy_load_msgs = []
         self.path_msgs = []
+        self.syscall_msgs = []
         self.by_header = { }
         self.check_input_file = False
                 
@@ -400,12 +466,16 @@ class AuditParser:
             elif i == "type=AVC_PATH":
                 msg = PathMessage(line)
                 found = True
+            elif i == "type=SYSCALL" or i == "type=1300":
+                msg = SyscallMessage(line)
+                found = True
             elif i == "type=DAEMON_START":
                 msg = DaemonStartMessage(list)
                 found = True
                 
             if found:
-                self.check_input_file = True
+                if not isinstance(msg, SyscallMessage):
+                    self.check_input_file = True
                 try:
                     msg.from_split_string(rec)
                 except ValueError:
@@ -443,6 +513,8 @@ class AuditParser:
             self.invalid_msgs.append(msg)
         elif isinstance(msg, PathMessage):
             self.path_msgs.append(msg)
+        elif isinstance(msg, SyscallMessage):
+            self.syscall_msgs.append(msg)
 
         # Group by audit header
         if msg.header != "":
@@ -458,15 +530,28 @@ class AuditParser:
     def __post_process(self):
         for value in self.by_header.values():
             avc = []
+            syscalls = []
             path = None
             for msg in value:
                 if isinstance(msg, PathMessage):
                     path = msg
                 elif isinstance(msg, AVCMessage):
                     avc.append(msg)
+                elif isinstance(msg, SyscallMessage):
+                    syscalls.append(msg)
             if len(avc) > 0 and path:
                 for a in avc:
                     a.path = path.path
+            if len(avc) > 0 and syscalls:
+                for a in avc:
+                    matches = [s for s in syscalls if s.pid == a.pid]
+                    if not matches and len(syscalls) == 1:
+                        matches = syscalls
+                    if matches:
+                        if not a.exe:
+                            a.exe = matches[0].exe
+                        if not a.comm:
+                            a.comm = matches[0].comm
 
     def parse_file(self, input):
         """Parse the contents of a file object. This method can be called
@@ -544,6 +629,17 @@ class AuditParser:
                 av_set.add_av(av, audit_msg=avc)
 
         return av_set
+
+    def to_avc_groups(self, avc_filter=None, only_denials=True):
+        """Group AVC messages by process and target path.
+
+        The returned groups also retain the source type, target type, and
+        object class so that the exact denied permissions can be turned into
+        minimal type-enforcement rules.
+        """
+        from .avc_group import aggregate_avcs
+        return aggregate_avcs(self.avc_msgs, avc_filter=avc_filter,
+                              only_denials=only_denials)
 
 class AVCTypeFilter:
     def __init__(self, regex):

@@ -105,6 +105,15 @@ Only process messages with a type that matches this regex
 .B "\-x" | "\-\-xperms"
 Generate extended permission access vector rules
 .TP
+.B "\-g" | "\-\-aggregate"
+Aggregate denials by process and target path.  The report is emitted as
+comments before the normal policy rules.  Each group lists the exact denied
+permissions and a minimal allow (or dontaudit with \-D) suggestion.
+.TP
+.B "\-\-group-by process,path"
+Explicitly select the fields used for aggregation.  This is equivalent to
+\-\-aggregate; the only currently supported field set is process,path.
+.TP
 .B "\-w" | "\-\-why"
 Translates SELinux audit messages into a description of why the access was denied
 
@@ -158,6 +167,23 @@ require {
 
 allow myapp_t etc_t:file { getattr open read };
 <review local.te and customize as desired>
+
+.B Using audit2allow to summarize denials by process and path
+
+$ cat /var/log/audit/audit.log | audit2allow \-g \-m local > local.te
+$ head local.te
+# AVC denials grouped by process and path
+# processes=1 groups=1 denials=1
+#
+# process: /usr/sbin/httpd (httpd)
+#   path: /var/www/html/index.html
+#   target: var_t:file
+#   denied: execute_no_trans
+#   count: 1
+#   suggestion: allow httpd_t var_t:file execute_no_trans;
+
+The report is composed of policy comments, so the resulting file can still be
+compiled and installed with checkmodule and semodule.
 
 .B Using audit2allow to generate module policy using reference policy
 

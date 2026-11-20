@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid28705",
+  "B": "/home/dev/feedback/uid28705",
+  "sha": "f5292e4ac9dffb4379280a73269788e8f2f59dff",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "SELinuxProject",
+    "repo": "selinux",
+    "sha": "f5292e4ac9dffb4379280a73269788e8f2f59dff"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "selinux",
+    "cloneUrl": "https://github.com/Rrr119/selinux.git"
+  },
+  "at": "2026-11-20T00:59:53.395Z"
+}

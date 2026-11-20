@@ -21,8 +21,10 @@
 
 import sys
 import os
+import re
 
 import sepolgen.audit as audit
+import sepolgen.avc_group as avc_group
 import sepolgen.policygen as policygen
 import sepolgen.interfaces as interfaces
 import sepolgen.output as output
@@ -46,6 +48,7 @@ class AuditToPolicy:
         self.__options = None
         self.__parser = None
         self.__avs = None
+        self.__groups = None
 
     def __parse_options(self):
         from optparse import OptionParser
@@ -89,6 +92,14 @@ class AuditToPolicy:
         parser.add_option("--interface-info", dest="interface_info", help="file name of interface information")
         parser.add_option("-x", "--xperms", action="store_true", dest="xperms",
                           default=False, help="generate extended permission rules")
+        parser.add_option("-g", "--aggregate", "--group", "--summary",
+                          "--by-process-path", action="store_true",
+                          dest="aggregate", default=False,
+                          help="aggregate denials by process and path and "
+                               "summarize minimal policy suggestions")
+        parser.add_option("--group-by", dest="group_by", default=None,
+                          metavar="FIELDS",
+                          help="fields used by --aggregate (supported: process,path)")
         parser.add_option("-w", "--why", dest="audit2why", action="store_true", default=(os.path.basename(sys.argv[0]) == "audit2why"),
                           help="Translates SELinux audit messages into a description of why the access was denied")
 
@@ -126,6 +137,14 @@ class AuditToPolicy:
             if options.cil:
                 sys.stderr.write("error: --module-package conflicts with --cil\n")
                 sys.exit(2)
+
+        if options.group_by:
+            fields = set(field.strip() for field in
+                         re.split(r"[,+]", options.group_by) if field.strip())
+            if fields != {"process", "path"}:
+                sys.stderr.write("error: --group-by supports process,path\n")
+                sys.exit(2)
+            options.aggregate = True
 
         self.__options = options
 
@@ -184,6 +203,12 @@ class AuditToPolicy:
             self.__avs = self.__parser.to_access()
             self.__role_types = self.__parser.to_role()
 
+        if self.__options.aggregate:
+            if self.__options.type:
+                self.__groups = self.__parser.to_avc_groups(avcfilter)
+            else:
+                self.__groups = self.__parser.to_avc_groups()
+
     def __load_interface_info(self):
         # Load interface info file
         if self.__options.interface_info:
@@ -216,6 +241,18 @@ class AuditToPolicy:
 
         return (ifs, perm_maps)
 
+    def __aggregation_report(self):
+        if self.__groups is None:
+            return ""
+        if self.__options.cil:
+            comment_prefix = ";"
+        else:
+            comment_prefix = "#"
+        rule_type = "dontaudit" if self.__options.dontaudit else "allow"
+        return avc_group.format_report(
+            self.__groups, comment_prefix=comment_prefix,
+            rule_type=rule_type, cil=self.__options.cil)
+
     def __output_modulepackage(self, writer, generator):
         generator.set_module_name(self.__options.module_package)
         filename = self.__options.module_package + ".te"
@@ -227,6 +264,9 @@ class AuditToPolicy:
             sys.stderr.write("could not write output file: %s\n" % str(e))
             sys.exit(1)
 
+        report = self.__aggregation_report()
+        if report:
+            fd.write("%s\n\n" % report)
         writer.write(generator.get_module(), fd)
         fd.close()
 
@@ -372,6 +412,9 @@ semodule -i {packagename}
                 fd = open(self.__options.output, "a")
             else:
                 fd = sys.stdout
+            report = self.__aggregation_report()
+            if report:
+                fd.write("%s\n\n" % report)
             writer.write(g.get_module(), fd)
 
     def main(self):

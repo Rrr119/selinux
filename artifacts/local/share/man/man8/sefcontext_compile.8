@@ -1,0 +1,96 @@
+.TH "sefcontext_compile" "8" "12 Aug 2015" "dwalsh@redhat.com" "SELinux Command Line documentation"
+.SH "NAME"
+sefcontext_compile \- compile file context regular expression files
+.
+.SH "SYNOPSIS"
+.B sefcontext_compile
+.RB [ \-r ]
+.RB [ \-i ]
+.RB [ \-V ]
+.RB [ \-o
+.IR outputfile ]
+.RB [ \-p
+.IR policyfile ]
+.I inputfile
+.
+.SH "DESCRIPTION"
+.B sefcontext_compile
+is used to compile file context regular expressions into
+.BR pcre (3)
+format.
+.sp
+The compiled file is used by libselinux file labeling functions.
+.sp
+By default
+.B sefcontext_compile
+writes the compiled pcre file with the
+.B .bin
+suffix appended (e.g. \fIinputfile\fB.bin\fR).
+.SH OPTIONS
+.TP
+.B \-o
+Specify an
+.I outputfile
+that must be a fully qualified file name as the
+.B .bin
+suffix is not automatically added.
+.TP
+.B \-p
+Specify a binary
+.I policyfile
+that will be used to validate the context entries in the
+.I inputfile
+.br
+If an invalid context is found the pcre formatted file will not be written and
+an error will be returned.
+.TP
+.B \-r
+Omit precompiled regular expressions from the output.
+.br
+(PCRE2 only. Compiled PCRE2 regular expressions are not portable across
+architectures.  Use this flag if you know that you build for an incompatible
+architecture to save space.  When linked against PCRE1 this flag is ignored.)
+.TP
+.B \-i
+Print regular expression info and exit. That is, back end version and
+architecture identifier.  Arch identifier format (PCRE2):
+.br
+.in +4n
+.EX
+<pointer width>\-<size type width>\-<endianness>
+.EE
+.br
+.in
+e.g., "8-8-el" for x86_64.
+.TP
+.B \-V
+Print binary output format version and exit.
+
+.SH "RETURN VALUE"
+On error -1 is returned.  On success 0 is returned.
+
+.SH "EXAMPLES"
+.B Example 1:
+.br
+sefcontext_compile /etc/selinux/targeted/contexts/files/file_contexts
+.sp
+Results in the following file being generated:
+.RS
+/etc/selinux/targeted/contexts/files/file_contexts.bin
+.RE
+.sp
+.B Example 2:
+.br
+sefcontext_compile -o new_fc.bin /etc/selinux/targeted/contexts/files/file_contexts
+.sp
+Results in the following file being generated in the cwd:
+.RS
+new_fc.bin
+.RE
+.
+.SH AUTHOR
+Dan Walsh, <dwalsh@redhat.com>
+.
+.SH "SEE ALSO"
+.BR selinux (8),
+.BR semanage (8),

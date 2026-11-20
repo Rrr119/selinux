@@ -46,6 +46,7 @@ class Audit2allowTests(unittest.TestCase):
         if err:
             print(out, err)
         self.assertSuccess("audit2allow", p.returncode, err)
+        self.assertNotIn(b"AVC denials grouped by process and path", out)
 
     def test_audit2why(self):
         "Verify audit2why works"
@@ -63,6 +64,28 @@ class Audit2allowTests(unittest.TestCase):
             print(out, err)
         self.assertTrue(b"allowxperm" in out)
         self.assertSuccess("xperms", p.returncode, err)
+
+    def test_aggregate_denial_by_process_and_path(self):
+        "Verify denials are grouped by process and path with minimal rules"
+        p = Popen([
+            sys.executable, './audit2allow', '-p', 'test_dummy_policy',
+            '-i', 'test_denial.log', '--aggregate'
+            ], stdout=PIPE, stderr=PIPE)
+        out, err = p.communicate()
+        if err:
+            print(out, err)
+        self.assertSuccess("aggregate", p.returncode, err)
+
+        self.assertIn(b"process: /usr/sbin/httpd (httpd)", out)
+        self.assertIn(b"path: /etc/myapp/app.conf", out)
+        self.assertIn(b"path: /var/www/html/index.html", out)
+        self.assertIn(b"denied: open read", out)
+        self.assertIn(b"count: 2", out)
+        self.assertIn(
+            b"suggestion: allow httpd_t usr_t:file { open read };", out)
+        self.assertIn(b"allow httpd_t usr_t:file { open read };", out)
+        self.assertIn(
+            b"allow httpd_t var_t:file execute_no_trans;", out)
 
 
 if __name__ == "__main__":

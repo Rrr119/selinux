@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: selinux
+Version: 3.11
+Summary: Python bindings for libselinux (SELinux userspace library)
+Author: SELinux Project
+Author-email: SELinux Project <selinux@vger.kernel.org>
+License-Expression: libselinux-1.0
+Project-URL: Homepage, https://github.com/SELinuxProject/selinux
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Topic :: Security
+Description-Content-Type: text/markdown
+Dynamic: author
